@@ -28,6 +28,7 @@ cc_binary(
         "//waymo_open_dataset/protos:metrics_cc_proto",
         "@com_google_absl//absl/strings",
     ],
+    linkopts = ['-lstdc++fs']
 )
 
 cc_binary(

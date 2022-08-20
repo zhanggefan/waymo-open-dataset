@@ -79,6 +79,9 @@ limitations under the License.
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <experimental/filesystem>
+#include <ctime>
+#include <iostream>
 
 #include "absl/strings/str_cat.h"
 #include "waymo_open_dataset/common/integral_types.h"
@@ -117,7 +120,7 @@ Config GetConfig() {
     config.add_score_cutoffs(i * 0.01);
   }
   config.add_score_cutoffs(1.0);
-
+  // config.set_include_details_in_measurements(true);
   return config;
 }
 
@@ -203,12 +206,29 @@ void Compute(const std::string& pd_str, const std::string& gt_str) {
     return;
   }
   std::cout << "\n";
+
+  std::time_t curr_time;
+	std::time(&curr_time);
+  char fdr_name[20];
+  std::strftime(fdr_name, 20, "%y%m%d%H%M%S", localtime(&curr_time));
+  std::string fdr_name_str(fdr_name);
+
   for (int i = 0; i < detection_metrics.size(); ++i) {
     const DetectionMetrics& metric = detection_metrics[i];
     std::cout << breakdown_names[i] << ": [mAP "
               << metric.mean_average_precision() << "]"
               << " [mAPH " << metric.mean_average_precision_ha_weighted()
               << "]\n";
+    if (std::experimental::filesystem::exists("metrics")) {
+      if (!std::experimental::filesystem::exists("metrics/" + fdr_name_str))
+        std::experimental::filesystem::create_directory("metrics/" + fdr_name_str);
+      std::fstream f;
+      f.open(
+        "metrics/" + fdr_name_str + "/metric_" + breakdown_names[i] + ".bin",
+        std::ios::out | std::ios::binary);
+      metric.SerializeToOstream(&f);
+      f.close();
+    }
   }
 }
 

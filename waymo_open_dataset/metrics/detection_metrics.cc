@@ -27,6 +27,8 @@ limitations under the License.
 #include "waymo_open_dataset/metrics/metrics_utils.h"
 #include "waymo_open_dataset/protos/breakdown.pb.h"
 #include "waymo_open_dataset/protos/metrics.pb.h"
+#include <thread>
+#include <atomic>
 
 namespace waymo {
 namespace open_dataset {
@@ -405,20 +407,33 @@ std::vector<DetectionMetrics> ComputeDetectionMetrics(
   const Config config_copy = config.score_cutoffs_size() > 0
                                  ? config
                                  : EstimateScoreCutoffs(config, pds, gts);
+
+  std::atomic_int idx{0};
+  std::vector<std::vector<DetectionMeasurements>> all_measurements(num_frames);
+  auto work = [&](){
+    while (true) {
+      int i = idx++; 
+      if (i >= num_frames) return;
+      printf("evaluate frame %d\n", i);
+      all_measurements[i] = ComputeDetectionMeasurements(config_copy, pds[i], gts[i], custom_iou_func);
+    }
+  };
+  std::vector<std::thread> workers;
+  for (int i=0; i<32; ++i) workers.emplace_back(work);
+  for (int i=0; i<32; ++i) workers[i].join();
+
   for (int i = 0; i < num_frames; ++i) {
+    std::cout << "merge frame " << i << "\n";
     if (i == 0) {
-      measurements = ComputeDetectionMeasurements(config_copy, pds[i], gts[i],
-                                                  custom_iou_func);
+      measurements = all_measurements[0];
     } else {
-      MergeDetectionMeasurementsVector(
-          ComputeDetectionMeasurements(config_copy, pds[i], gts[i],
-                                       custom_iou_func),
-          &measurements);
+      MergeDetectionMeasurementsVector(all_measurements[i], &measurements);
     }
   }
   std::vector<DetectionMetrics> metrics;
   metrics.reserve(measurements.size());
   for (auto& m : measurements) {
+    std::cout << "accumulate " << metrics.size() << "\n";
     metrics.emplace_back(ToDetectionMetrics(config, std::move(m),
                                             config.desired_recall_delta()));
   }
